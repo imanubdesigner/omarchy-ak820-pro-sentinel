@@ -39,7 +39,7 @@ install -m 0644 "${PROJECT_ROOT}/backend/sentinel/"*.py "${PREFIX}/sentinel/"
 install -m 0644 "${PROJECT_ROOT}/README.md" "${PREFIX}/README.md"
 install -m 0644 "${PROJECT_ROOT}/CHANGELOG.md" "${PREFIX}/CHANGELOG.md"
 install -m 0644 "${PROJECT_ROOT}/LICENSE" "${PREFIX}/LICENSE"
-install -m 0644 "${PROJECT_ROOT}/NOTICE" "${PREFIX}/NOTICE"
+install -m 0644 "${PROJECT_ROOT}/NOTICE.md" "${PREFIX}/NOTICE.md"
 install -m 0644 "${PROJECT_ROOT}/docs/"*.md "${PREFIX}/docs/"
 install -m 0644 "${PROJECT_ROOT}/systemd/${SERVICE}" "${SERVICE_PATH}"
 

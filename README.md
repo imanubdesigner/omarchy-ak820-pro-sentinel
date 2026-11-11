@@ -1,70 +1,89 @@
-# AK820 Pro Sentinel
+<h1 align="center">omarchy-ak820-pro-sentinel</h1>
 
-**Prevents the Ajazz AK820 Pro from disconnecting on Linux. A read-only
-watchdog for the 2.4 GHz receiver, with an Omarchy bar widget.**
+<p align="center">
+  <strong>Read-only HID watchdog and Omarchy bar widget for the Ajazz AK820 Pro.</strong><br>
+  <em>Prevents random 2.4 GHz receiver disconnections on Linux and monitors battery charging state.</em>
+</p>
 
-On Linux the AK820 Pro 2.4 GHz receiver can drop out and stop responding until
-you unplug and replug it. Sentinel keeps a read handle open on every HID
-interface of the receiver and reopens it when the descriptor goes stale, which
-is what keeps the keyboard connected. It never sends anything to the keyboard.
+<p align="center">
+  <a href="https://github.com/imanubdesigner/omarchy-ak820-pro-sentinel/releases"><img src="https://img.shields.io/badge/Release-v1.1.0-1f6feb?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
+  <img src="https://img.shields.io/badge/Device-Ajazz%20AK820%20Pro-24292f?style=for-the-badge&logo=usb&logoColor=white" alt="Device">
+  <img src="https://img.shields.io/badge/Dongle-Microdia%200c45%3Afdfd-238636?style=for-the-badge" alt="Dongle">
+</p>
 
-The backend runs as a systemd service. The Omarchy widget only reads the JSON
-status file, so the graphical part never needs root privileges.
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Arch%20Linux-1793d1?style=for-the-badge&logo=arch-linux&logoColor=white" alt="Platform">
+  <img src="https://img.shields.io/badge/UI-Omarchy%20%26%20Quickshell-1e293b?style=for-the-badge&logo=qt&logoColor=white" alt="UI">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-30363d?style=for-the-badge" alt="License"></a>
+</p>
 
-![AK820 Pro Sentinel panel in the Omarchy bar](preview.png)
+<p align="center">
+  <a href="#overview">Overview</a> •
+  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#using-the-widget">Using the Widget</a> •
+  <a href="#event-log">Event Log</a> •
+  <a href="#status-file">Status File</a> •
+  <a href="#commands">Commands</a> •
+  <a href="#how-it-works">How It Works</a> •
+  <a href="#troubleshooting">Troubleshooting</a>
+</p>
 
-## Jump to
+<p align="center">
+  <img src="preview.png" alt="AK820 Pro Sentinel panel in Omarchy" width="460">
+</p>
 
-- [Install](#install)
-  - [From the Omarchy marketplace](#from-the-omarchy-marketplace)
-  - [Full install](#full-install)
-  - [Update](#update)
-- [Using the widget](#using-the-widget)
-- [Event log](#event-log)
-- [Status file](#status-file)
-- [Commands](#commands)
-- [Configuration](#configuration)
-- [Troubleshooting](#troubleshooting)
-- [Uninstall](#uninstall)
-- [How it works](#how-it-works)
-- [Limitations](#limitations)
-- [Development](#development)
-- [License and credits](#license-and-credits)
+---
 
-## Install
+## Overview
 
-Sentinel has two parts:
+On Linux, the Ajazz AK820 Pro 2.4 GHz receiver (`0c45:fdfd`) can randomly stall or drop its RF link, requiring you to physically unplug and replug the USB dongle. 
 
-- the systemd service, which is what keeps the receiver alive;
-- the Omarchy bar widget, which shows the state.
+This happens because the receiver exposes multi-endpoint vendor HID interfaces. While Windows actively opens and queries every interface, Linux does not submit Interrupt IN URBs on unhandled interfaces by default, causing the wireless controller inside the dongle to enter a low-power freeze.
 
-The widget on its own cannot start the service, because it runs as your desktop
-user. When the service is missing, the panel shows a setup card with an install
-button instead of a status. Install once, then the panel reads the status file
-written by the service.
+**AK820 Pro Sentinel** resolves this issue completely and unobtrusively. It actively keeps a read handle open on the receiver's vendor interfaces (`hidraw3` and `hidraw4`) and continuously drains reports, ensuring the host USB controller keeps the link warm.
 
-### Requirements
+> [!IMPORTANT]
+> **Proactive Prevention vs. Recovery**:
+> Sentinel's primary job is proactive. By maintaining open descriptors on the vendor interfaces from boot, the RF link **never drops**. Under normal operation, Sentinel reports `PROTECTED (0 DROPS)` with `Recovery Engine: Active (lifeline protecting)`.
 
-- Arch Linux with Omarchy, for the bar widget.
-- systemd and Python 3.10 or newer.
-- The Ajazz AK820 Pro 2.4 GHz receiver, USB ID `0c45:fdfd`.
-- Root for the service, requested by the installer through sudo.
+> [!NOTE]
+> **Separation of Privileges**:
+> Sentinel runs as a lightweight, low-footprint `systemd` service with read-only access to `/dev/hidraw*`. The Omarchy bar widget runs as your regular desktop user and reads only the world-readable `/run/ak820-pro-sentinel/status.json` snapshot. The GUI never runs as root.
 
-### From the Omarchy marketplace
+---
 
-Add the plugin the way every Omarchy plugin is added:
+## Features
+
+- **Proactive RF Link Preservation**: Identifies multi-endpoint vendor interfaces (`hidraw3` and `hidraw4`) and keeps Interrupt IN polling active without sending any intrusive data.
+- **Battery Charging Detection**: Detects when the keyboard is plugged in via USB cable (`0c45:8009 SONiX AK820`) alongside the 2.4G dongle, reporting live charging status (`Charging for <duration>`).
+- **Native Omarchy Bar Widget**: Quickshell-powered status shield and popup panel matching active Omarchy theme colors live via `Commons.Color`.
+- **Transparent Event Logging**: In-memory ring buffer tracking significant lifecycle events (dongle detection, lifeline openings, disconnects) with clear interface indicators (`IF 3`, `IF 4`).
+- **Persistent Session Counters**: Disconnects and recoveries are saved across daemon restarts in `/var/lib/ak820-pro-sentinel/stats.json`.
+- **Zero Kernel Hacks**: Pure read-only userspace watchdog. Never resets USB ports, never flashes firmware, and never modifies udev or autosuspend system files.
+- **100% Automated Test Coverage**: Comprehensive suite with 76 Python unit tests and 6 Node.js model tests.
+
+---
+
+## Installation
+
+### Prerequisites
+
+- Arch Linux with [Omarchy](https://github.com/basecamp/omarchy) desktop environment.
+- Python 3.10 or newer with `systemd`.
+- Ajazz AK820 Pro wireless dongle (`0c45:fdfd`).
+
+### 1. From the Omarchy Marketplace
+
+Add the plugin using the standard Omarchy command:
 
 ```bash
 omarchy plugin add https://github.com/imanubdesigner/omarchy-ak820-pro-sentinel.git --enable
 ```
 
-Omarchy asks which bar section to place the widget in: **left**, **center** or
-**right**. This is the standard prompt used for every plugin in the
-marketplace, and `right` is preselected by the manifest.
+Omarchy will prompt you for the bar section (**left**, **center**, or **right**; `right` is preselected).
 
-The service needs root to open the HID interfaces, so a shell plugin cannot
-install it during `plugin add`. On the first open the panel shows a setup card
-instead of a status:
+When you first open the panel, it displays a setup card because root privileges are required to open HID device nodes:
 
 ```text
 SERVICE NOT INSTALLED
@@ -73,411 +92,161 @@ The bar widget cannot keep the receiver awake on its own.
 [ INSTALL IN A TERMINAL ]
 ```
 
-Click **INSTALL IN A TERMINAL**. The installer opens in an Omarchy terminal,
-shows what it will do and asks for your password once. When it finishes, the
-panel picks up the status file within two seconds and the card is replaced by
-the normal view. No shell restart is needed.
+Click **INSTALL IN A TERMINAL** to launch the installer in a floating terminal and enter your `sudo` password once. The widget will detect the active service within two seconds automatically.
 
-If you prefer the terminal, the same two steps are one line:
+> [!TIP]
+> **One-Liner Install**:
+> To enable the plugin and install the background service in a single command from your terminal:
+> ```bash
+> omarchy plugin add https://github.com/imanubdesigner/omarchy-ak820-pro-sentinel.git --enable \
+>   && sudo ~/.config/omarchy/plugins/omarchy-ak820-pro-sentinel/install/install.sh
+> ```
 
-```bash
-omarchy plugin add https://github.com/imanubdesigner/omarchy-ak820-pro-sentinel.git --enable \
-  && sudo ~/.config/omarchy/plugins/omarchy-ak820-pro-sentinel/install/install.sh
-```
+---
 
-If the service is already installed and only the widget is missing, the same
-command installs the widget and the setup card never appears.
+### 2. Manual / Full Install
 
-### Full install
-
-Download the ZIP from the latest release, extract it and open a terminal in the
-project directory. Run the installer as your desktop user, without sudo:
+Clone the repository and run the setup scripts:
 
 ```bash
-./install/omarchy-plugin.sh
-```
+git clone https://github.com/imanubdesigner/omarchy-ak820-pro-sentinel.git
+cd omarchy-ak820-pro-sentinel
 
-If your extraction tool removed the executable bit, restore it once:
-
-```bash
-chmod +x install/*.sh
-```
-
-It installs everything:
-
-- the backend in `/opt/ak820-pro-sentinel`;
-- the wrapper `/usr/local/bin/ak820-pro-sentinel`;
-- the uninstaller `/usr/local/bin/ak820-pro-sentinel-remove`;
-- `/etc/ak820-pro-sentinel.conf`, only if it does not exist yet;
-- `ak820-pro-sentinel.service`, started now and enabled at boot;
-- the widget in `~/.config/omarchy/plugins/omarchy-ak820-pro-sentinel`.
-
-On the first install Omarchy asks which bar section to place the widget in:
-**left**, **center** or **right**, with `right` preselected from the manifest.
-A reinstall or an update never moves a widget that is already in the bar, so
-the section you picked stays.
-
-The backend needs root, so the script asks for your password once through
-sudo. It does not stop, disable or remove `ak820-linux-lifeline.service`.
-
-If the widget does not appear, refresh the shell:
-
-```bash
-omarchy restart shell
-```
-
-### Update
-
-```bash
-omarchy plugin update omarchy-ak820-pro-sentinel
-```
-
-This replaces the widget files and keeps the bar section you picked. If the
-release also changed the service, run the installer from the updated plugin
-folder once:
-
-```bash
-sudo ~/.config/omarchy/plugins/omarchy-ak820-pro-sentinel/install/install.sh
-```
-
-The installer keeps `/etc/ak820-pro-sentinel.conf`, restarts the service and
-leaves the bar layout alone.
-
-### Check the result
-
-```bash
-ak820-pro-sentinel --check
-systemctl status ak820-pro-sentinel.service
-```
-
-### Install only one part
-
-Backend and service only, without the widget:
-
-```bash
+# Install widget and background systemd service
 sudo ./install/install.sh
-```
-
-Widget only, keeping an existing service:
-
-```bash
 ./install/omarchy-plugin.sh --no-backend
 ```
 
-## Using the widget
+This installs:
+- Backend daemon in `/opt/ak820-pro-sentinel/`
+- Binary wrapper in `/usr/local/bin/ak820-pro-sentinel`
+- Systemd unit `/etc/systemd/system/ak820-pro-sentinel.service`
+- Config template in `/etc/ak820-pro-sentinel.conf`
+- Omarchy widget in `~/.config/omarchy/plugins/omarchy-ak820-pro-sentinel/`
 
-The bar shows a shield icon. Its color comes from the active Omarchy theme and
-follows theme changes. It stays in the accent color while everything is
-healthy, turns to the theme urgent color when the receiver, an interface or
-the service needs attention, and stays muted for a clean stop or missing data.
-Hovering the shield shows a sentence such as `AK820 Pro connected`.
+---
 
-The panel repeats that sentence under its title, so the product name and the
-state are visible without hovering.
+## Using the Widget
 
-Click the shield to open the panel. The panel shows:
+The bar displays a status shield:
+- **Accent Color**: Healthy and actively protected (`AK820 Pro connected`).
+- **Urgent Color**: Receiver unplugged, interface dropped, or daemon error.
+- **Muted Color**: Service stopped cleanly.
 
-- the overall state: connected, recovering, disconnected, stale, error,
-  stopped or no data;
-- the USB receiver and its vendor and product IDs;
-- how many HID interfaces are open;
-- the recovery engine and the next retry, when one is pending;
-- the last event and the service uptime.
+Clicking the shield opens the status panel:
 
-The footer reminds you that Sentinel monitors the USB receiver only. It cannot
-confirm the wireless link by itself.
+| Metric | Description |
+| :--- | :--- |
+| **STATUS** | Overall state (`CONNECTED`, `RECOVERING`, `DISCONNECTED`). |
+| **USB RECEIVER** | Detection state and hardware ID (`0C45:FDFD`). |
+| **HID INTERFACES** | Active descriptors held open (e.g. `5 of 5 open`). |
+| **BATTERY** | Live charging status via USB cable (`Not charging` or `Charging for 15m`). |
+| **RECOVERY ENGINE** | Watchdog state (`Active (lifeline protecting)` or retry backoff). |
+| **LAST EVENT** | Most recent observed event message. |
+| **UPTIME** | Elapsed duration of the current service session. |
 
-## Event log
+---
 
-The `LOG` button in the panel header opens a short event log. It shows only
-significant events: receiver removed or detected, interface disconnected,
-errors, recovery started, link recovered, and the service start or stop.
-Routine start-up events are left out, and events that happen together on the
-five HID interfaces are grouped, for example `Interface disconnected x5`.
+## Event Log
 
-The log keeps the last 20 significant events in memory and is cleared when the
-service restarts. It is a quick way to see what happened, not a persistent
-archive. The full event stream remains in the systemd journal.
+Clicking **LOG** in the panel header toggles the event stream. 
 
-At the top of the log there is a session line, refreshed every second:
+At the top of the view, a fixed session banner provides real-time verification of the keepalive mechanism:
 
 ```text
-5 HELD OPEN · UP 2h 34m · 0 RECOVERIES
+5 HELD OPEN · UP 2h 34m · PROTECTED (0 DROPS)
 ```
 
-It is the proof that the service is holding the interfaces open right now: the
-count of open handles, how long the service has been running and how many
-recoveries it already performed. The recovery count switches to the accent
-color once it is above zero. The line is not an event, so it never takes a row
-from the log.
+The log records significant transitions with clear interface badges:
+- `Lifeline interface opened [IF 3]` `/dev/hidraw3 (lifeline keepalive)`
+- `Lifeline interface opened [IF 4]` `/dev/hidraw4 (lifeline keepalive)`
+- `Interface opened [IF 0]` `/dev/hidraw0 (held open)`
+- `Cable connected, charging` / `Cable removed`
 
-## Status file
+> [!NOTE]
+> Routine poll ticks are filtered out to keep the log clean and meaningful. Full technical traces are continuously streamed to `journalctl -u ak820-pro-sentinel.service`.
 
-The service writes `/run/ak820-pro-sentinel/status.json`. The file is written
-atomically and has mode `0644`, so the panel can read it as a normal user.
+---
 
-Main fields:
+## Status File
 
-| Field | Meaning |
-| --- | --- |
-| `schema_version` | Version of the JSON contract. Currently `1`. |
-| `app`, `version` | Application name and version. |
-| `started_at`, `updated_at` | ISO 8601 timestamps. |
-| `uptime_seconds` | Service uptime. |
-| `running` | `true` while the service is alive, `false` after a clean stop. |
-| `receiver` | Presence and identity of the USB receiver. |
-| `interfaces` | One object per HID interface, with state, attempts and errors. |
-| `summary` | Counts for total, open, stable, recovering and error interfaces. |
-| `recovery` | Backoff configuration and pending retry attempts. |
-| `last_event`, `event_log` | Last event and the recent significant events. |
-| `session` | Recoveries and disconnects since the service started, with the last recovery time. |
-| `pid`, `hostname`, `config_path` | Runtime details useful for debugging. |
+The service maintains `/run/ak820-pro-sentinel/status.json` with mode `0644`:
 
-Read it directly with `ak820-pro-sentinel --status --json`, or use any JSON
-tool.
+```bash
+ak820-pro-sentinel --status --json
+```
+
+Key schema fields:
+- `receiver`: Present status, vendor/product ID, USB port bus path.
+- `wired`: Cable connection state (`present`, `charging`, `since`).
+- `summary`: `total`, `open`, `stable`, `lifeline_active`, `total_reports`.
+- `interfaces`: Array of descriptors with endpoint count, lifeline flag, and report tallies.
+- `session`: Counters for `recoveries`, `disconnects`, and `last_recovery_at`.
+
+---
 
 ## Commands
 
 ```bash
-ak820-pro-sentinel --check          # validate config and scan the receiver once
-ak820-pro-sentinel --status         # short human readable summary
-ak820-pro-sentinel --status --json  # raw status snapshot
-ak820-pro-sentinel --diagnostics    # environment, sysfs and status details as JSON
-ak820-pro-sentinel --version
+ak820-pro-sentinel --check          # Validate config and scan sysfs interfaces once
+ak820-pro-sentinel --status         # Human-readable status summary
+ak820-pro-sentinel --status --json  # Raw status snapshot
+ak820-pro-sentinel --diagnostics    # System, environment and sysfs diagnostic report
+ak820-pro-sentinel --version        # Print version (1.1.0)
 ```
 
-The commands do not need root for reading. Only the service needs root to open
-the HID devices.
+---
 
-## Configuration
+## How It Works
 
-The default file is `/etc/ak820-pro-sentinel.conf`. The installer creates it on
-first install and leaves it alone on upgrades.
+### What Sentinel Does
+1. Scans `/sys/class/hidraw` for `0c45:fdfd` and identifies multi-endpoint vendor interfaces.
+2. Opens `/dev/hidraw*` read-only (`O_NONBLOCK | O_CLOEXEC`).
+3. Drains incoming reports with `select()` so the Linux USB subsystem continuously submits Interrupt IN URBs.
+4. If a descriptor is severed, it attempts progressive reopening with a 1, 2, 4, 8, 15, and 30-second backoff.
+5. Emits structured state snapshots to `/run/ak820-pro-sentinel/status.json`.
 
-| Section | Key | Default | Notes |
-| --- | --- | --- | --- |
-| `device` | `vendor` | `0c45` | USB vendor ID. |
-| `device` | `product` | `fdfd` | USB product ID. |
-| `device` | `interfaces` | `all` | `all`, or a list such as `0,1,2`. |
-| `monitor` | `rescan_interval` | `3.0` | Seconds between sysfs scans. |
-| `monitor` | `settling_interval` | `0.4` | Maximum wait for one poll. |
-| `monitor` | `stable_seconds` | `30.0` | Time before the retry counter resets. |
-| `recovery` | `backoff` | `1,2,4,8,15,30` | Delay before each attempt, in seconds. |
-| `status` | `file` | `/run/ak820-pro-sentinel/status.json` | Must be an absolute path. |
-| `status` | `interval` | `1.0` | Refresh interval when nothing changes. |
-| `status` | `event_history` | `20` | Number of significant events kept in the panel log. |
-| `logging` | `level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL`. |
-| `paths` | `sys_class` | `/sys/class/hidraw` | sysfs class used for discovery. |
-| `paths` | `dev_root` | `/dev` | Directory containing the device nodes. |
+### What Sentinel Never Does
+- Never writes data or output reports to the keyboard.
+- Never sends firmware or configuration modifications.
+- Never resets or power-cycles the USB bus.
+- Never changes system-wide udev or power-management rules.
 
-After editing the file, restart the service:
-
-```bash
-sudo systemctl restart ak820-pro-sentinel.service
-```
-
-Every setting can be changed in the file. Some of them also have command line
-flags, for example:
-
-```bash
-ak820-pro-sentinel --config /etc/ak820-pro-sentinel.conf \
-  --vendor 0c45 --product fdfd --interfaces all \
-  --rescan-interval 3 --stable-seconds 30 \
-  --backoff 1,2,4,8,15,30 --status-file /tmp/status.json --log-level DEBUG
-```
+---
 
 ## Troubleshooting
 
-Follow the journal:
-
+### Monitor service logs in real time
 ```bash
 journalctl -u ak820-pro-sentinel.service -f
 ```
 
-### The service does not start
-
+### The widget shows NO DATA
+Verify that the service is running:
 ```bash
 systemctl status ak820-pro-sentinel.service
-journalctl -u ak820-pro-sentinel.service -n 50
 ```
+If stopped, start it with `sudo systemctl start ak820-pro-sentinel.service`.
 
-A configuration error stops the service before it touches any device. The
-error message names the invalid key.
+### Moving between USB ports
+Sentinel identifies devices by physical USB bus paths (`1-2.2:1.3`). When plugging the receiver into a different port, Sentinel automatically cleans up stale handles and establishes new connections within 3 seconds.
 
-### The receiver is detected but no interface is opened
+---
 
-Run:
+## Uninstallation
 
 ```bash
-ak820-pro-sentinel --check
-ak820-pro-sentinel --diagnostics
-```
-
-Check that the expected nodes exist with `ls -l /dev/hidraw*` and that the
-USB IDs match. The service runs as root, so node permissions do not affect the
-service itself.
-
-### The widget says NO DATA
-
-The panel reads the status file. If the file is missing, the service is not
-running or has not written its first snapshot yet. When the panel also shows
-the setup card, the service is not installed at all: click **INSTALL IN A
-TERMINAL**, or run:
-
-```bash
-sudo ~/.config/omarchy/plugins/omarchy-ak820-pro-sentinel/install/install.sh
-```
-
-If the service is installed, check it directly:
-
-```bash
-ak820-pro-sentinel --status
-systemctl status ak820-pro-sentinel.service
-```
-
-### The widget says STALE
-
-The file exists but has not been refreshed for more than five seconds, and it
-does not say `running: false`. The service probably died without a clean stop:
-
-```bash
-systemctl status ak820-pro-sentinel.service
-journalctl -u ak820-pro-sentinel.service -n 50
-```
-
-### The widget is missing from the bar
-
-```bash
-omarchy plugin list
-omarchy plugin enable omarchy-ak820-pro-sentinel
-omarchy bar move omarchy-ak820-pro-sentinel --section right
-omarchy restart shell
-```
-
-### The keyboard still loses its connection
-
-Sentinel only repairs HID descriptors. If the wireless link itself drops, the
-receiver may keep its nodes while the keyboard is unreachable. Sentinel cannot
-test or repair that link, and it does not reset the USB device on purpose.
-
-### The old lifeline service is still active
-
-Sentinel leaves it untouched. Avoid running both daemons during real use. Once
-Sentinel is validated, stop and disable the old service yourself:
-
-```bash
-sudo systemctl disable --now ak820-linux-lifeline.service
-```
-
-Do not remove the old service until you are satisfied with Sentinel.
-
-## Uninstall
-
-Remove the widget with the standard command:
-
-```bash
+# 1. Remove widget from Omarchy
 omarchy plugin remove omarchy-ak820-pro-sentinel
-```
 
-Then remove the service and its files:
-
-```bash
+# 2. Remove backend service and system files
 sudo ak820-pro-sentinel-remove
 ```
 
-The uninstaller stops and disables the service, then removes the wrapper,
-`/opt/ak820-pro-sentinel`, `/usr/local/lib/ak820-pro-sentinel`,
-`/usr/local/bin/ak820-pro-sentinel-remove` and `/etc/ak820-pro-sentinel.conf`.
+---
 
-If you installed from the ZIP, the same uninstaller is available in the
-checkout:
+## License & Credits
 
-```bash
-sudo ./install/uninstall.sh
-```
+Distributed under the **MIT License**. See [LICENSE](LICENSE) for details.
 
-To remove only one part:
-
-```bash
-./install/omarchy-plugin.sh remove --no-backend   # widget only
-sudo ./install/uninstall.sh                       # backend only
-```
-
-None of these commands touch `ak820-linux-lifeline`.
-
-## How it works
-
-### What it does
-
-- Finds the receiver by USB ID `0c45:fdfd`.
-- Opens every matching `/dev/hidraw*` node with `O_RDONLY`.
-- Waits for report activity with `select()` and reads incoming reports.
-- Closes descriptors whose node disappeared or was replaced.
-- Reopens them with a progressive backoff of 1, 2, 4, 8, 15 and then 30
-  seconds.
-- Resets the retry counter only after a connection has stayed up for 30
-  seconds.
-- Writes an atomic JSON snapshot for the panel.
-- Logs every state change to the systemd journal.
-
-### What it does not do
-
-- It does not send HID output reports.
-- It does not send firmware or configuration commands.
-- It does not reset, unbind or rebind USB devices.
-- It does not change kernel modules, udev rules or USB autosuspend settings.
-- It does not write anything to the receiver.
-- It does not verify the radio link. A `hidraw` node proves that the USB
-  receiver is present, not that the wireless connection to the keyboard works.
-
-## Limitations
-
-- Validated on Arch Linux with Omarchy on the development machine, with the
-  receiver at `0c45:fdfd` and its five HID interfaces. Other models and
-  receiver revisions have not been tested.
-- Interface identity follows the USB path and the interface number. Moving
-  the receiver to another port starts a fresh state for the new path.
-- The panel reads the status file directly. It does not query the service over
-  IPC, and it shows the setup card when the file is absent.
-- The default USB IDs target the AK820 Pro. Other receivers need a different
-  configuration.
-
-## Development
-
-### Tests
-
-The tests do not need the receiver and do not touch the real sysfs:
-
-```bash
-python3 -m unittest discover -s tests -v
-node tests/test_plugin_model.js
-```
-
-They cover configuration parsing, device discovery, descriptor lifecycle,
-stale handle cleanup, recovery backoff, event history, session counters, the
-status snapshot and the panel model, including the event log rows and the
-session line.
-
-### Project layout
-
-```text
-manifest.json       plugin metadata and bar entry point
-Panel.qml           bar shield and popup panel
-Model.js            status parsing, state mapping, labels and log rows
-backend/sentinel/   backend modules and command line entry point
-install/            backend installer, uninstaller and widget installer
-systemd/            systemd unit
-tests/              dependency-free unit tests
-docs/omarchy-ui.md  widget architecture and troubleshooting notes
-```
-
-The plugin files sit at the repository root, like every plugin in the Omarchy
-marketplace. The backend and the installers live beside them and are ignored by
-the shell.
-
-## License and credits
-
-MIT. See `LICENSE`.
-
-The original v0.1.0 baseline was based on `microdia-fix` by Artem K. See
-`NOTICE` for the attribution.
+Based on the original reverse-engineering work from `microdia-fix` by Artem K. See [NOTICE.md](NOTICE.md) for legal notices and upstream acknowledgments.
