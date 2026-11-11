@@ -480,4 +480,4 @@ the shell.
 MIT. See `LICENSE`.
 
 The original v0.1.0 baseline was based on `microdia-fix` by Artem K. See
-[NOTICE](NOTICE.md) for the attribution.
+[NOTICE](NOTICE) for the attribution.
