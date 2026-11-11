@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy-ak820-pro-sentinel",
+  "name": "AK820 Pro Sentinel",
+  "version": "1.1.0",
+  "author": "imanubdesigner",
+  "license": "MIT",
+  "description": "Prevents the Ajazz AK820 Pro from disconnecting on Linux: a read only HID watchdog for the 2.4 GHz receiver, with a status panel in the Omarchy theme.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "AK820 Pro Sentinel",
+    "description": "Shield icon tinted by receiver state, with a panel listing HID interfaces, recovery attempts, last event and uptime.",
+    "category": "System",
+    "aliases": [
+      "ak820",
+      "ajazz",
+      "keyboard",
+      "receiver",
+      "sentinel",
+      "hidraw"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

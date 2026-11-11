@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Shared paths for the installer and the uninstaller.
+
+PROJECT="ak820-pro-sentinel"
+VERSION="1.1.0"
+PREFIX="/opt/${PROJECT}"
+LIB="/usr/local/lib/${PROJECT}"
+BIN="/usr/local/bin/${PROJECT}"
+REMOVE_BIN="/usr/local/bin/${PROJECT}-remove"
+SERVICE="${PROJECT}.service"
+SERVICE_PATH="/etc/systemd/system/${SERVICE}"
+CONFIG="/etc/${PROJECT}.conf"
+RUN_DIR="/run/${PROJECT}"
+STATUS_FILE="${RUN_DIR}/status.json"
+PLUGIN_ID="omarchy-ak820-pro-sentinel"
