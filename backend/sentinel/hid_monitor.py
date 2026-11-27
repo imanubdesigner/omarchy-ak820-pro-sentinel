@@ -24,6 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .capture import ReportCapture
 from .config import Config
 from .events import EventBus, EventType
 from .recovery import RecoveryEngine
@@ -76,6 +77,7 @@ class Connection:
     opened_at: float
     reports: int = 0
     last_read: float | None = None
+    is_lifeline: bool = False
 
 
 class HidMonitor:
@@ -98,6 +100,7 @@ class HidMonitor:
         probe: Callable[[int], tuple[str, str] | None] | None = probe_devinfo,
         usb_info: Callable[[str], Any] = usb_device_info,
         wired_scanner: Callable[..., Any] = scan_wired,
+        capture: ReportCapture | None = None,
         on_change: Callable[[], None] | None = None,
         on_tick: Callable[[float], None] | None = None,
     ) -> None:
@@ -115,6 +118,7 @@ class HidMonitor:
         self.probe = probe
         self.usb_info = usb_info
         self.wired_scanner = wired_scanner
+        self.capture = capture
         self.on_change = on_change
         self.on_tick = on_tick
         self.connections: dict[str, Connection] = {}
@@ -271,6 +275,8 @@ class HidMonitor:
             wired.name = found.name
             wired.usb_path = found.usb_path
             wired.since = now
+            if self.capture is not None:
+                self.capture.mark("cable connected")
             self.events.emit(
                 EventType.WIRED_CONNECTED,
                 "keyboard cable connected, charging",
@@ -282,6 +288,8 @@ class HidMonitor:
         if found is None and wired.present:
             wired.present = False
             wired.since = None
+            if self.capture is not None:
+                self.capture.mark("cable removed")
             self.events.emit(
                 EventType.WIRED_REMOVED,
                 "keyboard cable removed",
@@ -384,6 +392,7 @@ class HidMonitor:
             inode=info.node_inode,
             rdev=info.node_rdev,
             opened_at=now,
+            is_lifeline=bool(getattr(info, "is_lifeline", False)),
         )
         self.connections[info.key] = connection
         self.store.mark_open(info.key, descriptor, now)
@@ -584,6 +593,10 @@ class HidMonitor:
             connection.reports += 1
             connection.last_read = now
             self.store.touch(connection.key, now, reports=connection.reports)
+            # Opt-in diagnostics. Only the vendor interfaces are ever recorded:
+            # the keyboard interfaces carry typed keys.
+            if self.capture is not None and connection.is_lifeline:
+                self.capture.record(connection.interface, data)
             if self.debug_reports:
                 LOG.debug(
                     "HID report interface=%s bytes=%s",

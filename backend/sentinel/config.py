@@ -45,6 +45,8 @@ class Config:
     dev_root: str = DEFAULT_DEV_ROOT
     usb_devices: str = "/sys/bus/usb/devices"
     stats_file: str = "/var/lib/ak820-pro-sentinel/stats.json"
+    # Empty means off. See sentinel/capture.py.
+    capture_file: str = ""
     config_path: str = DEFAULT_CONFIG_PATH
 
     def with_overrides(self, **values: Any) -> "Config":
@@ -74,6 +76,7 @@ class Config:
             "dev_root": self.dev_root,
             "usb_devices": self.usb_devices,
             "stats_file": self.stats_file,
+            "capture_file": self.capture_file,
             "config_path": self.config_path,
         }
         return data
@@ -165,6 +168,8 @@ def validate_config(config: Config) -> Config:
         raise ConfigError("status_file cannot be empty")
     if not Path(config.status_file).is_absolute():
         raise ConfigError("status_file must be an absolute path")
+    if config.capture_file and not Path(config.capture_file).is_absolute():
+        raise ConfigError("capture file must be an absolute path")
     if not config.sys_class or not config.dev_root:
         raise ConfigError("sys_class and dev_root cannot be empty")
     return replace(
@@ -220,6 +225,7 @@ def load_config(path: str | None = None, **overrides: Any) -> Config:
             "log_level": read("logging", "level"),
             "sys_class": read("paths", "sys_class"),
             "dev_root": read("paths", "dev_root"),
+            "capture_file": read("capture", "file"),
         }
         for key, raw in mappings.items():
             if raw is None:
@@ -294,4 +300,11 @@ level = INFO
 [paths]
 sys_class = /sys/class/hidraw
 dev_root = /dev
+
+[capture]
+# Diagnostic only, off by default. Records the distinct reports of the vendor
+# interfaces (never the keyboard interfaces) to a root only file, to find out
+# whether the receiver ever sends the battery level. Nothing is sent to the
+# keyboard. Delete the file when you are done.
+# file = /var/lib/ak820-pro-sentinel/reports.log
 """
