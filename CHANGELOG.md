@@ -4,6 +4,74 @@ All notable changes to AK820 Pro Sentinel are recorded here.
 
 The project follows semantic versioning.
 
+## [1.3.2] - 2026-11-27
+
+### Changed
+
+- The bar charging cue is now the shield itself breathing in the theme green,
+  instead of a second battery icon next to it, which was too invasive. It only
+  pulses while the shield is green, so a problem never hides behind it.
+
+### Removed
+
+- The four segment battery next to the shield in the bar (added in 1.3.1). The
+  panel keeps its charging card.
+
+## [1.3.1] - 2026-11-27
+
+### Added
+
+- Charging indicator in the bar: a small four segment battery next to the
+  shield that fills in steps while the cable is in, so charging is visible by
+  shape and not only by color. It steps on a 450 ms timer, so it is cheap.
+- The theme green falls back to `alacritty.toml` (normal green) when the theme
+  has no `colors.toml`; without either, the accent is used.
+
+## [1.3.0] - 2026-11-27
+
+### Added
+
+- Opt-in report capture (`[capture] file = ...` or `--capture-file`) to find out
+  whether the receiver ever sends the battery level. It records the distinct
+  reports of the vendor (lifeline) interfaces only, never the keyboard
+  interfaces that carry typed keys, in a root only file (mode 0600) capped at
+  2000 distinct reports, with notes when the cable is plugged in or removed.
+  Nothing is written to the keyboard.
+
+### Changed
+
+- The battery note now reads "Level not available on the PC": the keyboard
+  knows its level and shows it on its own screen.
+
+## [1.2.0] - 2026-11-27
+
+Dashboard polish release. The backend is unchanged.
+
+### Added
+
+- Charging card in the panel: a battery that fills in a loop in the theme
+  green, with the time spent charging (`42 min`, `1 h 24 min`). The animation
+  only runs while the panel is open.
+- The bar shield and the panel header turn the theme green while the keyboard
+  charges. Problem states keep the urgent color.
+- Charge timer in the bar tooltip.
+- The theme green is read from the active theme's `colors.toml` and follows
+  theme switches; without it the accent is used.
+
+### Changed
+
+- The `BATTERY` row now reads `Not charging` with a note that the keyboard does
+  not report its level, and is replaced by the charging card while charging.
+
+### Removed
+
+- The `PROTECTED (0 DROPS)` label. The interfaces are held open from the
+  start, so a zero adds nothing. Recoveries are shown only when they happen.
+
+### Fixed
+
+- The `BATTERY` row was tinted with the shield state color instead of its own.
+
 ## [1.1.0] - 2026-11-11
 
 Lifeline parity and charging detection release.

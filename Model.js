@@ -89,14 +89,17 @@ function statusSentence(state) {
 }
 
 // Colors always come from the active theme. The caller passes the theme
-// values so QML can track them as binding dependencies.
-function stateColor(state, accent, foreground, muted, urgent) {
+// values so QML can track them as binding dependencies. While the keyboard is
+// charging, the healthy states take the theme green; anything that needs
+// attention keeps its warning color, because a charging cable must never hide
+// a problem.
+function stateColor(state, accent, foreground, muted, urgent, charging, green) {
   switch (state) {
     case "stable":
     case "connected":
-      return accent
     case "detected":
-      return foreground
+      if (charging && green) return green
+      return state === "detected" ? foreground : accent
     case "recovering":
     case "disconnected":
     case "error":
@@ -107,6 +110,18 @@ function stateColor(state, accent, foreground, muted, urgent) {
     default:
       return muted
   }
+}
+
+// The theme palette lives in colors.toml (color2 is the theme green); themes
+// without it still ship alacritty.toml, whose first `green` is the normal
+// green. Returns "" when neither key is found, so the panel can fall back to
+// the accent instead of inventing a hue.
+function parseThemeGreen(text) {
+  var source = String(text || "")
+  var color = "(?:#|0x)?([0-9a-fA-F]{6})[\"']?"
+  var match = new RegExp("^\\s*color2\\s*=\\s*[\"']?" + color, "m").exec(source)
+    || new RegExp("^\\s*green\\s*=\\s*[\"']?" + color, "m").exec(source)
+  return match ? "#" + match[1].toLowerCase() : ""
 }
 
 // Human readable titles for the significant events kept in status.event_log.
@@ -275,23 +290,23 @@ function sessionStats(status) {
   }
 }
 
-// "5 HELD OPEN · UP 2h 34m ·" plus the recovery count on the next call, so the
-// panel can tint just the number.
+// "5 HELD OPEN · UP 2h 34m". Recoveries are only mentioned when something was
+// actually repaired: the receiver holds its interfaces open from the start, so
+// a zero would be noise. The panel tints the recovery part separately.
 function sessionHoldLine(status) {
   var stats = sessionStats(status)
-  return stats.open + " HELD OPEN · UP " + stats.uptime + " ·"
+  return stats.open + " HELD OPEN · UP " + stats.uptime
 }
 
 function sessionRecoveryLine(status) {
   var stats = sessionStats(status)
-  if (stats.recoveries === 0) {
-    return "PROTECTED (0 DROPS)"
-  }
+  if (stats.recoveries === 0) return ""
   return stats.recoveries + " " + (stats.recoveries === 1 ? "RECOVERY" : "RECOVERIES")
 }
 
 function sessionLine(status) {
-  return sessionHoldLine(status) + " " + sessionRecoveryLine(status)
+  var recovery = sessionRecoveryLine(status)
+  return sessionHoldLine(status) + (recovery ? " · " + recovery : "")
 }
 
 function receiverValue(status) {
@@ -363,7 +378,7 @@ function uptimeValue(status) {
 
 function rows(status, stateKey) {
   var state = stateKey || stateOf(status)
-  return [
+  var all = [
     {
       label: "STATUS",
       value: stateLabel(state),
@@ -381,7 +396,7 @@ function rows(status, stateKey) {
     {
       label: "BATTERY",
       value: chargingValue(status),
-      tone: chargingTone(status)
+      detail: "Level not available on the PC"
     },
     {
       label: "RECOVERY ENGINE",
@@ -396,6 +411,10 @@ function rows(status, stateKey) {
       value: uptimeValue(status)
     }
   ]
+  // While charging, the panel shows the charging card instead of this row.
+  return isCharging(status)
+    ? all.filter(function(row) { return row.label !== "BATTERY" })
+    : all
 }
 
 // The keyboard shows up as a second USB device when the cable is plugged in.
@@ -403,14 +422,41 @@ function isCharging(status) {
   return !!(status && status.wired && status.wired.present === true)
 }
 
-function chargingValue(status) {
-  if (!isCharging(status)) return "Not charging"
-  var since = Date.parse(String(status.wired.since || ""))
-  var updated = Date.parse(String(status.updated_at || ""))
-  if (isNaN(since) || isNaN(updated)) return "Charging (cable connected)"
-  return "Charging for " + formatShortUptime(Math.max(0, (updated - since) / 1000))
+// Compact duration for the charge timer: "< 1 min", "42 min", "1 h 24 min",
+// "1 d 2 h". Seconds are never shown, so the text only changes once a minute.
+function formatChargeDuration(seconds) {
+  var total = Math.max(0, Math.floor(Number(seconds) || 0))
+  var days = Math.floor(total / 86400)
+  var hours = Math.floor((total % 86400) / 3600)
+  var minutes = Math.floor((total % 3600) / 60)
+  if (days > 0) return days + " d " + hours + " h"
+  if (hours > 0) return hours + " h " + pad(minutes) + " min"
+  if (minutes > 0) return minutes + " min"
+  return "< 1 min"
 }
 
-function chargingTone(status) {
-  return isCharging(status) ? "accent" : "muted"
+// Charging snapshot for the panel. `trusted` is false when the status file is
+// stale: a timer driven by a dead service would only count a lie. The elapsed
+// time runs on the panel clock (nowMs), so it moves without waiting for a new
+// snapshot. It counts from the moment Sentinel saw the cable.
+function chargeInfo(status, nowMs, trusted) {
+  var info = { charging: false, seconds: null, duration: "", since: null }
+  if (trusted === false || !isCharging(status)) return info
+  info.charging = true
+  var since = Date.parse(String((status.wired && status.wired.since) || ""))
+  if (!isNaN(since)) {
+    info.since = since
+    info.seconds = Math.max(0, (Number(nowMs) - since) / 1000)
+    info.duration = formatChargeDuration(info.seconds)
+  }
+  return info
+}
+
+function chargeTooltip(stateText, info) {
+  if (!info || !info.charging) return stateText
+  return stateText + " · charging" + (info.duration ? " " + info.duration : "")
+}
+
+function chargingValue(status) {
+  return isCharging(status) ? "Charging" : "Not charging"
 }

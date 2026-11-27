@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
 import errno
 import logging
 import os
+import tempfile
 import unittest
+from pathlib import Path
 
 import support
+from sentinel.capture import ReportCapture
 from sentinel.config import Config, validate_config
 from sentinel.events import EventBus
 from sentinel.hid_monitor import HidMonitor
@@ -247,6 +251,27 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(connection.reports, 1)
         self.assertEqual(connection.last_read, 1.0)
         self.assertEqual(len(self.fs.closed), 0)
+
+    def test_capture_records_only_vendor_interfaces(self) -> None:
+        # The keyboard interface carries typed keys: it must never be captured.
+        keyboard = self.discover("0")
+        vendor = self.discover("3")
+        vendor = dataclasses.replace(vendor, is_lifeline=True)
+        self.desired[vendor.key] = vendor
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "reports.log")
+            self.monitor.capture = ReportCapture(path)
+            self.monitor.rescan(0.0)
+            self.reader_result = b"\xaa\xbb"
+            self.readable = [self.monitor.connections[keyboard.key].descriptor]
+            self.monitor.poll(1.0)
+            self.assertNotIn("aa bb", Path(path).read_text())
+            self.readable = [self.monitor.connections[vendor.key].descriptor]
+            self.monitor.poll(2.0)
+            self.monitor.capture.close()
+            text = Path(path).read_text()
+        self.assertIn("IF3 len=2 aa bb", text)
+        self.assertNotIn("IF0", text)
 
     def test_stability_resets_attempts(self) -> None:
         item = self.discover()

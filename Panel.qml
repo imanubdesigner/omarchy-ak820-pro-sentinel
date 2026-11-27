@@ -54,8 +54,23 @@ Panel {
   readonly property color foregroundColor: Commons.Color.foreground
   readonly property color mutedColor: Commons.Color.muted
   readonly property color urgentColor: Commons.Color.urgent
+  // The theme green comes from the palette of the active Omarchy theme
+  // (colors.toml, color2). When a theme has none, the accent takes its place,
+  // so the widget never ships a hue of its own.
+  readonly property string themeColorsPath: homeDir + "/.config/omarchy/current/theme/colors.toml"
+  readonly property string themeAlacrittyPath: homeDir + "/.config/omarchy/current/theme/alacritty.toml"
+  property string themeGreen: ""
+  property string themeGreenFallback: ""
+  readonly property color chargeColor: themeGreen !== ""
+    ? themeGreen
+    : (themeGreenFallback !== "" ? themeGreenFallback : accentColor)
+  // A stale snapshot is not trusted: no green and no timer for a dead service.
+  readonly property var charge: Model.chargeInfo(status, nowMs, stateKey !== "stale")
+  readonly property bool charging: charge.charging
+  readonly property bool pulsing: charging
+    && (stateKey === "connected" || stateKey === "stable" || stateKey === "detected")
   readonly property color stateColor: Model.stateColor(
-    stateKey, accentColor, foregroundColor, mutedColor, urgentColor
+    stateKey, accentColor, foregroundColor, mutedColor, urgentColor, charging, chargeColor
   )
   readonly property var rows: Model.rows(status, stateKey)
   readonly property var logRows: Model.logRows(status, 20)
@@ -69,6 +84,10 @@ Panel {
   onOpenedChanged: if (!opened) showLog = false
 
   onStatusChanged: root.refreshSetupTimer()
+
+  // A theme switch rewrites the palette: reread it once the shell colors move.
+  onAccentColorChanged: themeReload.restart()
+  onForegroundColorChanged: themeReload.restart()
 
   Component.onCompleted: root.refreshSetupTimer()
 
@@ -126,6 +145,37 @@ Panel {
     printErrors: false
     onLoaded: root.setupScriptPresent = true
     onLoadFailed: root.setupScriptPresent = false
+  }
+
+  FileView {
+    id: themeFile
+    path: root.themeColorsPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.themeGreen = Model.parseThemeGreen(text())
+    onLoadFailed: root.themeGreen = ""
+  }
+
+  // Themes without colors.toml still carry the terminal palette.
+  FileView {
+    id: themeAlacrittyFile
+    path: root.themeAlacrittyPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.themeGreenFallback = Model.parseThemeGreen(text())
+    onLoadFailed: root.themeGreenFallback = ""
+  }
+
+  Timer {
+    id: themeReload
+    interval: 400
+    repeat: false
+    onTriggered: {
+      themeFile.reload()
+      themeAlacrittyFile.reload()
+    }
   }
 
   Timer {
@@ -186,9 +236,34 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     text: "󰒃"
-    tooltipText: Model.statusSentence(root.stateKey)
+    tooltipText: Model.chargeTooltip(Model.statusSentence(root.stateKey), root.charge)
     foreground: root.stateColor
     onPressed: function(_mouse) { root.toggle() }
+  }
+
+  // Charging cue on the bar: the shield breathes slowly in the theme green.
+  // One icon, no extra widget. It only pulses while the shield is green, so a
+  // problem never hides behind a charging animation.
+  SequentialAnimation {
+    running: root.pulsing
+    loops: Animation.Infinite
+    onRunningChanged: if (!running) button.opacity = 1
+    NumberAnimation {
+      target: button
+      property: "opacity"
+      from: 1.0
+      to: 0.4
+      duration: 1200
+      easing.type: Easing.InOutSine
+    }
+    NumberAnimation {
+      target: button
+      property: "opacity"
+      from: 0.4
+      to: 1.0
+      duration: 1200
+      easing.type: Easing.InOutSine
+    }
   }
 
   KeyboardPanel {
@@ -354,6 +429,133 @@ Panel {
         width: parent.width
         spacing: Style.space(12)
 
+        // Charging card. It only exists while the cable is in, so the
+        // dashboard stays quiet the rest of the time. The keyboard does not
+        // report its level, so the card shows how long it has been charging
+        // instead of a percentage.
+        Item {
+          id: chargeCard
+          visible: root.charging
+          width: parent.width
+          height: chargeRow.implicitHeight + Style.space(24)
+
+          Rectangle {
+            anchors.fill: parent
+            radius: Style.space(10)
+            color: Qt.rgba(root.chargeColor.r, root.chargeColor.g, root.chargeColor.b, 0.08)
+            border.width: 1
+            border.color: Qt.rgba(root.chargeColor.r, root.chargeColor.g, root.chargeColor.b, 0.35)
+          }
+
+          Row {
+            id: chargeRow
+            anchors.left: parent.left
+            anchors.leftMargin: Style.space(14)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(14)
+
+            // Battery drawn with plain rectangles, so it needs no icon font
+            // and takes the theme green. The fill climbs, rests, restarts.
+            Item {
+              id: batteryGlyph
+              width: Style.space(48)
+              height: Style.space(22)
+              anchors.verticalCenter: parent.verticalCenter
+              property real level: 0.15
+              readonly property int stroke: Math.max(1, Math.round(Style.space(2)))
+
+              Rectangle {
+                id: batteryShell
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: parent.width - batteryNub.width - Style.space(2)
+                radius: Style.space(5)
+                color: "transparent"
+                border.width: batteryGlyph.stroke
+                border.color: root.chargeColor
+
+                Rectangle {
+                  readonly property int inset: batteryGlyph.stroke + Math.max(1, Math.round(Style.space(2)))
+                  anchors.left: parent.left
+                  anchors.leftMargin: inset
+                  anchors.top: parent.top
+                  anchors.topMargin: inset
+                  anchors.bottom: parent.bottom
+                  anchors.bottomMargin: inset
+                  width: Math.max(0, (parent.width - 2 * inset) * batteryGlyph.level)
+                  radius: Style.space(2)
+                  color: root.chargeColor
+                }
+              }
+
+              Rectangle {
+                id: batteryNub
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(3)
+                height: parent.height * 0.42
+                radius: Style.space(1)
+                color: root.chargeColor
+              }
+
+              // Only runs while the card is on screen, so a closed panel
+              // costs nothing.
+              SequentialAnimation {
+                running: root.charging && root.opened && !root.showLog
+                loops: Animation.Infinite
+                onRunningChanged: if (!running) batteryGlyph.level = 0.15
+                NumberAnimation {
+                  target: batteryGlyph
+                  property: "level"
+                  from: 0.15
+                  to: 1.0
+                  duration: 1800
+                  easing.type: Easing.InOutSine
+                }
+                PauseAnimation { duration: 600 }
+              }
+            }
+
+            Column {
+              width: chargeCard.width - batteryGlyph.width - Style.space(14) * 3
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(2)
+
+              Text {
+                textFormat: Text.PlainText
+                text: "CHARGING"
+                color: root.chargeColor
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                font.letterSpacing: 1.4
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                text: root.charge.duration || "Cable connected"
+                color: root.barForeground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.heading
+                font.bold: true
+                elide: Text.ElideRight
+                width: parent.width
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                text: "Level not available on the PC"
+                color: Qt.darker(root.barForeground, 1.5)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
+                width: parent.width
+              }
+            }
+          }
+        }
+
         Repeater {
           model: root.rows
 
@@ -432,9 +634,9 @@ Panel {
         width: parent.width
         spacing: Style.space(8)
 
-        // A fixed proof of the microdia fix: the interfaces held open right
-        // now, how long the service has been up, and how many recoveries it
-        // already performed. It never adds rows to the event list.
+        // The interfaces held open right now and how long the service has been
+        // up. Recoveries appear only once one actually happened. It never adds
+        // rows to the event list.
         Row {
           width: parent.width
           spacing: Style.space(6)
@@ -451,10 +653,9 @@ Panel {
 
           Text {
             textFormat: Text.PlainText
-            text: Model.sessionRecoveryLine(root.status)
-            color: root.session.recoveries > 0
-              ? root.urgentColor
-              : root.accentColor
+            visible: root.session.recoveries > 0
+            text: "· " + Model.sessionRecoveryLine(root.status)
+            color: root.urgentColor
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
             font.bold: true

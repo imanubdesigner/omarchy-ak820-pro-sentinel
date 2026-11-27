@@ -16,6 +16,7 @@ from .config import (
     ConfigError,
     load_config,
 )
+from .capture import ReportCapture
 from .diagnostics import (
     StatusPublisher,
     collect,
@@ -65,6 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
         help='recovery backoff in seconds, for example "1,2,4,8,15,30"',
     )
     parser.add_argument("--status-file", help="path of the JSON status snapshot")
+    parser.add_argument(
+        "--capture-file",
+        help=(
+            "diagnostic: record distinct vendor HID reports (never the keyboard "
+            "interfaces) to this root only file, to look for battery data"
+        ),
+    )
     parser.add_argument(
         "--log-level",
         choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
@@ -120,6 +128,7 @@ def _config_from_args(args: argparse.Namespace):
         "stable_seconds": args.stable_seconds,
         "backoff": args.backoff,
         "status_file": args.status_file,
+        "capture_file": args.capture_file,
         "log_level": args.log_level,
     }
     return load_config(args.config, **overrides)
@@ -202,11 +211,13 @@ def main(argv: list[str] | None = None) -> int:
     store = StateStore(config.vendor, config.product)
     recovery = RecoveryEngine(config.backoff, config.stable_seconds)
     publisher = StatusPublisher(config, store, recovery, events)
+    capture = ReportCapture(config.capture_file) if config.capture_file else None
     monitor = HidMonitor(
         config,
         store,
         events,
         recovery,
+        capture=capture,
         on_change=lambda: publisher.publish(monitor.clock(), force=True),
         on_tick=publisher.publish,
     )
@@ -257,6 +268,8 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         now = monitor.clock()
         events.unsubscribe(refresh_status)
+        if capture is not None:
+            capture.close()
         events.emit(EventType.SERVICE_STOPPED, "Sentinel stopped", pid=os.getpid())
         publisher.publish(
             now,

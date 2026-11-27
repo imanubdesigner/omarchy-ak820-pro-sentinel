@@ -25,7 +25,13 @@ new Function(
     "\nexports.sessionStats = sessionStats" +
     "\nexports.sessionLine = sessionLine" +
     "\nexports.sessionHoldLine = sessionHoldLine" +
-    "\nexports.sessionRecoveryLine = sessionRecoveryLine"
+    "\nexports.sessionRecoveryLine = sessionRecoveryLine" +
+    "\nexports.rows = rows" +
+    "\nexports.stateColor = stateColor" +
+    "\nexports.parseThemeGreen = parseThemeGreen" +
+    "\nexports.formatChargeDuration = formatChargeDuration" +
+    "\nexports.chargeInfo = chargeInfo" +
+    "\nexports.chargeTooltip = chargeTooltip"
 )(model)
 
 function event(type, timestamp, extra) {
@@ -138,9 +144,11 @@ function testShortUptimeAndSessionLine() {
     summary: { open: 5, total: 5 },
     session: { recoveries: 0, disconnects: 0, last_recovery_at: null }
   }
-  assert.strictEqual(model.sessionLine(idle), "5 HELD OPEN · UP 2h 34m · PROTECTED (0 DROPS)")
+  assert.strictEqual(model.sessionLine(idle), "5 HELD OPEN · UP 2h 34m")
   assert.strictEqual(model.sessionStats(idle).open, 5)
   assert.strictEqual(model.sessionStats(idle).recoveries, 0)
+  // No repairs, no recovery text: the panel never celebrates "0 drops".
+  assert.strictEqual(model.sessionRecoveryLine(idle), "")
 
   const repaired = {
     uptime_seconds: 30,
@@ -151,8 +159,78 @@ function testShortUptimeAndSessionLine() {
   assert.strictEqual(model.sessionStats(repaired).lastRecovery, "2026-10-31T12:00:00.000+00:00")
 
   // A snapshot from an older service has no session block: show zeros, not NaN.
-  assert.strictEqual(model.sessionLine({ summary: { open: 2 } }), "2 HELD OPEN · UP 0s · PROTECTED (0 DROPS)")
-  assert.strictEqual(model.sessionLine(null), "0 HELD OPEN · UP 0s · PROTECTED (0 DROPS)")
+  assert.strictEqual(model.sessionLine({ summary: { open: 2 } }), "2 HELD OPEN · UP 0s")
+  assert.strictEqual(model.sessionLine(null), "0 HELD OPEN · UP 0s")
+}
+
+function testChargeDurationAndTimer() {
+  assert.strictEqual(model.formatChargeDuration(0), "< 1 min")
+  assert.strictEqual(model.formatChargeDuration(59), "< 1 min")
+  assert.strictEqual(model.formatChargeDuration(60), "1 min")
+  assert.strictEqual(model.formatChargeDuration(2520), "42 min")
+  assert.strictEqual(model.formatChargeDuration(3600), "1 h 00 min")
+  assert.strictEqual(model.formatChargeDuration(5040), "1 h 24 min")
+  assert.strictEqual(model.formatChargeDuration(93600), "1 d 2 h")
+  assert.strictEqual(model.formatChargeDuration(null), "< 1 min")
+
+  const since = "2026-11-27T10:00:00.000+00:00"
+  const status = { wired: { present: true, since: since }, summary: { open: 2 } }
+  const now = Date.parse(since) + 84 * 60 * 1000
+  const info = model.chargeInfo(status, now, true)
+  assert.strictEqual(info.charging, true)
+  assert.strictEqual(info.duration, "1 h 24 min")
+  assert.strictEqual(model.chargeTooltip("AK820 Pro connected", info), "AK820 Pro connected · charging 1 h 24 min")
+
+  // Not charging, a stale snapshot and a missing timestamp all stay honest.
+  assert.strictEqual(model.chargeInfo({ wired: { present: false } }, now, true).charging, false)
+  assert.strictEqual(model.chargeInfo(status, now, false).charging, false)
+  assert.strictEqual(model.chargeInfo(null, now, true).charging, false)
+  const noSince = model.chargeInfo({ wired: { present: true } }, now, true)
+  assert.strictEqual(noSince.charging, true)
+  assert.strictEqual(noSince.duration, "")
+  assert.strictEqual(model.chargeTooltip("AK820 Pro connected", noSince), "AK820 Pro connected · charging")
+  assert.strictEqual(model.chargeTooltip("AK820 Pro connected", { charging: false }), "AK820 Pro connected")
+}
+
+function testChargingTurnsHealthyStatesGreen() {
+  const colors = ["accent", "fg", "muted", "urgent"]
+  const color = (state, charging) => model.stateColor(state, ...colors, charging, "green")
+  assert.strictEqual(color("connected", false), "accent")
+  assert.strictEqual(color("connected", true), "green")
+  assert.strictEqual(color("stable", true), "green")
+  assert.strictEqual(color("detected", false), "fg")
+  assert.strictEqual(color("detected", true), "green")
+  // Problems and a stopped service keep their color: the cable hides nothing.
+  for (const state of ["recovering", "disconnected", "error", "stale"]) {
+    assert.strictEqual(color(state, true), "urgent")
+  }
+  assert.strictEqual(color("stopped", true), "muted")
+  // Old call sites without the new arguments still work.
+  assert.strictEqual(model.stateColor("connected", ...colors), "accent")
+}
+
+function testThemeGreenParsing() {
+  assert.strictEqual(model.parseThemeGreen('accent = "#7aa2f7"\ncolor2 = "#9ece6a"\ncolor10 = "#ff0000"'), "#9ece6a")
+  assert.strictEqual(model.parseThemeGreen("  color2='#9ECE6A'  # green"), "#9ece6a")
+  assert.strictEqual(model.parseThemeGreen('color2 = "0x9ece6a"'), "#9ece6a")
+  // Themes without colors.toml: the normal green of alacritty.toml.
+  const alacritty = '[colors.normal]\nblack = "#1a1b26"\nred = "#f7768e"\ngreen = "#9ece6a"\n[colors.bright]\ngreen = "#73daca"'
+  assert.strictEqual(model.parseThemeGreen(alacritty), "#9ece6a")
+  assert.strictEqual(model.parseThemeGreen('green = "0x9ece6a"'), "#9ece6a")
+  // colors.toml wins when both keys are present.
+  assert.strictEqual(model.parseThemeGreen('green = "#111111"\ncolor2 = "#222222"'), "#222222")
+  assert.strictEqual(model.parseThemeGreen('color12 = "#112233"'), "")
+  assert.strictEqual(model.parseThemeGreen('color2 = "green"'), "")
+  assert.strictEqual(model.parseThemeGreen(""), "")
+  assert.strictEqual(model.parseThemeGreen(null), "")
+}
+
+function testBatteryRowAppearsOnlyWhenNotCharging() {
+  const labels = (status) => model.rows(status).map((row) => row.label)
+  assert.ok(labels({ summary: { open: 2 } }).includes("BATTERY"))
+  assert.ok(!labels({ wired: { present: true, since: "2026-11-27T10:00:00.000+00:00" } }).includes("BATTERY"))
+  const row = model.rows({}).find((item) => item.label === "BATTERY")
+  assert.strictEqual(row.value, "Not charging")
 }
 
 function testLocalTimeFormatting() {
@@ -170,6 +248,10 @@ const tests = [
   testOldSnapshotFallsBackToEvents,
   testLimitAndEmptyState,
   testShortUptimeAndSessionLine,
+  testChargeDurationAndTimer,
+  testChargingTurnsHealthyStatesGreen,
+  testThemeGreenParsing,
+  testBatteryRowAppearsOnlyWhenNotCharging,
   testLocalTimeFormatting
 ]
 

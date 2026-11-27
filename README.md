@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/imanubdesigner/omarchy-ak820-pro-sentinel/releases"><img src="https://img.shields.io/badge/Release-v1.1.0-1f6feb?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
+  <a href="https://github.com/imanubdesigner/omarchy-ak820-pro-sentinel/releases"><img src="https://img.shields.io/badge/Release-v1.3.2-1f6feb?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
   <img src="https://img.shields.io/badge/Device-Ajazz%20AK820%20Pro-24292f?style=for-the-badge&logo=usb&logoColor=white" alt="Device">
   <img src="https://img.shields.io/badge/Dongle-Microdia%200c45%3Afdfd-238636?style=for-the-badge" alt="Dongle">
 </p>
@@ -45,7 +45,7 @@ This happens because the receiver exposes multi-endpoint vendor HID interfaces. 
 
 > [!IMPORTANT]
 > **Proactive Prevention vs. Recovery**:
-> Sentinel's primary job is proactive. By maintaining open descriptors on the vendor interfaces from boot, the RF link **never drops**. Under normal operation, Sentinel reports `PROTECTED (0 DROPS)` with `Recovery Engine: Active (lifeline protecting)`.
+> Sentinel's primary job is proactive. By maintaining open descriptors on the vendor interfaces from boot, the RF link **never drops**. Under normal operation the panel shows `Recovery Engine: Active (lifeline protecting)`. Recoveries are mentioned only when one actually happened.
 
 > [!NOTE]
 > **Separation of Privileges**:
@@ -56,7 +56,7 @@ This happens because the receiver exposes multi-endpoint vendor HID interfaces. 
 ## Features
 
 - **Proactive RF Link Preservation**: Identifies multi-endpoint vendor interfaces (`hidraw3` and `hidraw4`) and keeps Interrupt IN polling active without sending any intrusive data.
-- **Battery Charging Detection**: Detects when the keyboard is plugged in via USB cable (`0c45:8009 SONiX AK820`) alongside the 2.4G dongle, reporting live charging status (`Charging for <duration>`).
+- **Battery Charging Detection**: Detects when the keyboard is plugged in via USB cable (`0c45:8009 SONiX AK820`) alongside the 2.4G dongle, turning the shield green and showing an animated battery with a charging timer (`Charging 1 h 24 min`).
 - **Native Omarchy Bar Widget**: Quickshell-powered status shield and popup panel matching active Omarchy theme colors live via `Commons.Color`.
 - **Transparent Event Logging**: In-memory ring buffer tracking significant lifecycle events (dongle detection, lifeline openings, disconnects) with clear interface indicators (`IF 3`, `IF 4`).
 - **Persistent Session Counters**: Disconnects and recoveries are saved across daemon restarts in `/var/lib/ak820-pro-sentinel/stats.json`.
@@ -140,10 +140,32 @@ Clicking the shield opens the status panel:
 | **STATUS** | Overall state (`CONNECTED`, `RECOVERING`, `DISCONNECTED`). |
 | **USB RECEIVER** | Detection state and hardware ID (`0C45:FDFD`). |
 | **HID INTERFACES** | Active descriptors held open (e.g. `5 of 5 open`). |
-| **BATTERY** | Live charging status via USB cable (`Not charging` or `Charging for 15m`). |
+| **BATTERY** | `Not charging` while on battery. While the cable is in, this row becomes a charging card with an animated battery and the time spent charging. The keyboard does not report its level, so no percentage is shown. |
 | **RECOVERY ENGINE** | Watchdog state (`Active (lifeline protecting)` or retry backoff). |
 | **LAST EVENT** | Most recent observed event message. |
 | **UPTIME** | Elapsed duration of the current service session. |
+
+---
+
+## Looking for the battery level
+
+The keyboard shows its charge on its own screen, but Linux does not expose it
+(`/sys/class/power_supply` stays empty and UPower sees nothing). To find out
+whether the receiver sends it at all, Sentinel has an opt-in, read only
+capture. It records the distinct reports of the vendor interfaces (`hidraw3`
+and `hidraw4`) and never the keyboard interfaces, which carry typed keys. The
+file is readable by root only and capped at 2000 distinct reports.
+
+```ini
+# /etc/ak820-pro-sentinel.conf
+[capture]
+file = /var/lib/ak820-pro-sentinel/reports.log
+```
+
+Restart the service, plug and unplug the cable, let the screen icon change,
+then compare the timestamps in `sudo cat /var/lib/ak820-pro-sentinel/reports.log`
+with what the keyboard showed. A byte that changes together with the icon is
+the battery level. Delete the file and remove the option when you are done.
 
 ---
 
@@ -151,11 +173,13 @@ Clicking the shield opens the status panel:
 
 Clicking **LOG** in the panel header toggles the event stream. 
 
-At the top of the view, a fixed session banner provides real-time verification of the keepalive mechanism:
+At the top of the view, a fixed session banner shows how many interfaces are held open and for how long:
 
 ```text
-5 HELD OPEN · UP 2h 34m · PROTECTED (0 DROPS)
+5 HELD OPEN · UP 2h 34m
 ```
+
+If Sentinel ever had to repair a link, ` · 1 RECOVERY` is appended in the theme's urgent color.
 
 The log records significant transitions with clear interface badges:
 - `Lifeline interface opened [IF 3]` `/dev/hidraw3 (lifeline keepalive)`
@@ -192,7 +216,7 @@ ak820-pro-sentinel --check          # Validate config and scan sysfs interfaces 
 ak820-pro-sentinel --status         # Human-readable status summary
 ak820-pro-sentinel --status --json  # Raw status snapshot
 ak820-pro-sentinel --diagnostics    # System, environment and sysfs diagnostic report
-ak820-pro-sentinel --version        # Print version (1.1.0)
+ak820-pro-sentinel --version        # Print version (1.3.2)
 ```
 
 ---

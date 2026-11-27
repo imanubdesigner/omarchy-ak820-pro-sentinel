@@ -79,7 +79,8 @@ All colors come from `Commons.Color`:
 | Service stopped | `Commons.Color.muted` |
 | Unknown or no data | `Commons.Color.muted` |
 
-The shield uses the theme accent while everything is healthy. It switches to
+The shield uses the theme accent while everything is healthy, and the theme
+green while the keyboard is charging (see below). It switches to
 the theme urgent color as soon as an interface, the receiver or the service
 needs attention. A clean stop and a missing file stay muted, because they are
 not failures of the watchdog.
@@ -89,6 +90,40 @@ problem and `muted` for service context.
 
 Typography and spacing use `Style.font` and `Style.space()`. There are no
 hardcoded hues, glows or gradients, so the widget follows every theme change.
+
+## Charging
+
+The keyboard enumerates as a second USB device when the cable is plugged in,
+which the backend reports as `wired.present` with `wired.since`. The widget
+reacts in three places:
+
+- **Green shield.** The healthy states (`connected`, `stable`, `detected`)
+  take the theme green while charging. Problem states keep `urgent` and a
+  stopped service stays `muted`, so the cable never hides a fault.
+- **Charging card.** At the top of the status view, a battery drawn with plain
+  rectangles (no icon font) fills up in a loop, next to the time spent
+  charging (`< 1 min`, `42 min`, `1 h 24 min`, `1 d 2 h`). The animation only
+  runs while the panel is open on the status view. The keyboard does not
+  report its charge level, so there is no percentage. While charging, the
+  `BATTERY` row is replaced by this card.
+- **Pulsing shield.** On the bar, the green shield slowly fades between full
+  and 40 % opacity (a 2.4 s cycle) while charging. It is one icon, with no
+  extra widget. The pulse only runs while the shield is green: a recovering,
+  disconnected, stale or error state stays steady in the urgent color.
+- **Tooltip.** The bar tooltip appends `charging 1 h 24 min`.
+
+The timer runs on the panel clock from `wired.since`, so it advances without
+waiting for a new snapshot. It counts from the moment Sentinel saw the cable,
+which is also the service start if the cable was already in. The keyboard
+knows its charge level but the receiver is not known to forward it, so the
+card shows a timer instead of a percentage; see the README for the capture
+that looks for it. A stale snapshot
+shows neither the green nor the timer.
+
+The theme green is read from `~/.config/omarchy/current/theme/colors.toml`
+(`color2`), or from `alacritty.toml` (the first `green`) when the theme has no
+`colors.toml`. Both are watched and reread shortly after the shell colors
+change. When neither has a green, the accent is used instead.
 
 ## State mapping
 
@@ -142,12 +177,14 @@ At the top of the log there is a fixed session line, refreshed every second
 from the same snapshot:
 
 ```text
-5 HELD OPEN · UP 2h 34m · 0 RECOVERIES
+5 HELD OPEN · UP 2h 34m
 ```
 
 It comes from `sessionHoldLine` and `sessionRecoveryLine` in `Model.js`, which
 read `summary.open`, `uptime_seconds` and the `session` block. The recovery
-count turns accent once it is above zero. The line is not an event, so it does
+count is appended in the urgent color (` · 1 RECOVERY`) only once it is above
+zero: the receiver holds its interfaces open from the start, so a permanent
+"0 drops" label would add nothing. The line is not an event, so it does
 not consume one of the 20 log rows. It is the visible proof that the service
 currently holds the interfaces open.
 
